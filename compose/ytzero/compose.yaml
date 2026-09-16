@@ -1,0 +1,9 @@
+services:
+  ytzero:
+    image: ghcr.io/pelski/ytzero:latest
+    container_name: ytzero
+    ports:
+      - "10101:3001"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
