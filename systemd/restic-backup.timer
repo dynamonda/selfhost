@@ -1,5 +1,5 @@
 [Unit]
-Description=Dialy restic backup timer
+Description=Daily restic backup timer
 
 [Timer]
 OnCalendar=*-*-* 02:00:00 Asia/Tokyo
