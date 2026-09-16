@@ -7,3 +7,7 @@ services:
     volumes:
       - ./data:/data
     restart: unless-stopped
+    # ytzero (bun) は PID 1 で SIGTERM ハンドラを登録していないため、SIGTERM を
+    # 無視して必ず猶予切れの SIGKILL で止まる。デフォルトの 10 秒は純粋な待ち損。
+    # 将来 graceful shutdown が実装されたらログにその旨が出るので、そのとき延ばす。
+    stop_grace_period: 3s
