@@ -1,15 +1,39 @@
 [Unit]
-Description=Restic backup of /selfhost/data
+Description=Restic backup of selfhost services
 Wants=local-fs.target
-After=local-fs.target
-RequiresMountsFor=/selfhost/data /selfhost/backup/resticrepo
+After=local-fs.target docker.service
+RequiresMountsFor=/selfhost /selfhost/backup/resticrepo
 
 [Service]
 Type=oneshot
-User=restic
-Group=restic
-
 ExecStart=/selfhost/scripts/backup.sh
+
+# コンテナが root で書いたファイルを読み、docker を操作する必要があるため root で動かす。
+# その代わり、触れる範囲を以下で絞る。
+
+# restic のキャッシュ。ProtectHome で /root が隠れるので /var/cache/restic に逃がす
+# (systemd が自動で作成する)。
+CacheDirectory=restic
+Environment=RESTIC_CACHE_DIR=/var/cache/restic
+
+# ファイルシステム全体を読み取り専用にし、書き込みを許すのはバックアップ先と
+# docker ソケットだけにする。パス指定を間違えても他を壊さない。
+ProtectSystem=strict
+ReadWritePaths=/selfhost/backup/resticrepo
+ReadWritePaths=/run/docker.sock
+ProtectHome=yes
+PrivateTmp=yes
+
+# ローカルリポジトリなのでネットワークは不要。docker ソケット用に AF_UNIX だけ残す。
+# S3 や SFTP など remote repo に変えるときは AF_INET AF_INET6 を足すこと。
+RestrictAddressFamilies=AF_UNIX
+
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
 
 Nice=19
 IOSchedulingClass=best-effort
