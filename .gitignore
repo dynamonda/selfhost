@@ -1,3 +1,9 @@
 # ytzero
 compose/ytzero/data/*
 !compose/ytzero/data/.gitkeep
+
+# restic リポジトリ（restic ユーザー所有。git に入れない）
+backup/resticrepo/
+
+# backup.sh のローカル設定（秘密情報を含みうる）
+scripts/backup.env
