@@ -1,0 +1,16 @@
+[Unit]
+Description=Restic backup of /selfhost/data
+Wants=local-fs.target
+After=local-fs.target
+RequiresMountsFor=/selfhost/data /selfhost/backup/resticrepo
+
+[Service]
+Type=oneshot
+User=restic
+Group=restic
+
+ExecStart=/selfhost/scripts/backup.sh
+
+Nice=19
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
