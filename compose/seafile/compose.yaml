@@ -1,0 +1,103 @@
+# Seafile Community Edition 13。
+# 公式の seafile-server.yml + .env を、このリポジトリの流儀
+# (1 サービス 1 ディレクトリ・データは ./data 配下) に合わせて 1 ファイルにまとめた。
+# 元: https://manual.seafile.com/13.0/setup/setup_ce_by_docker/
+#
+# 公式構成に含まれる caddy (自動 HTTPS) と seadoc (オンライン文書編集) は入れていない。
+# caddy はホストの 80/443 を占有し docker.sock を要求するが、ここは ytzero と同じく
+# ホストのポートを直接見せれば足りる。seadoc はその caddy のパスルーティング
+# (/sdoc-server/, /socket.io/) 前提なので、caddy を入れないなら動かない。
+# 後で HTTPS を付けるなら caddy.yml と seadoc.yml を公式から持ってくること。
+#
+# 秘密情報とホスト固有の値は同じディレクトリの .env に置く (.env.example 参照)。
+# docker compose がこのファイルと同じ場所の .env を自動で読む。
+#
+# イメージは :latest ではなく 13.0 系に固定している。Seafile はメジャーバージョンを
+# 跨ぐと DB マイグレーションが走り、飛び級アップグレードもできない。勝手に上がると
+# 気づかないうちに壊れるので、上げるときは upgrade notes を読んでから手で上げる。
+
+services:
+  db:
+    image: mariadb:10.11
+    container_name: seafile-mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=${INIT_SEAFILE_MYSQL_ROOT_PASSWORD:?未設定}
+      - MYSQL_LOG_CONSOLE=true
+      - MARIADB_AUTO_UPGRADE=1
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck.sh", "--connect", "--mariadbupgrade", "--innodb_initialized"]
+      interval: 20s
+      start_period: 30s
+      timeout: 5s
+      retries: 10
+    # バックアップ (QUIESCE=stop) は「止めればディスク上が整合している」ことに依存する。
+    # InnoDB のシャットダウンがデフォルトの 10 秒で終わらず SIGKILL されると、
+    # クラッシュリカバリ前提の状態をバックアップすることになるので余裕を持たせる。
+    stop_grace_period: 60s
+
+  redis:
+    image: redis:7-alpine
+    container_name: seafile-redis
+    command:
+      - /bin/sh
+      - -c
+      - exec redis-server --requirepass "$$REDIS_PASSWORD" --save "" --appendonly no
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+    restart: unless-stopped
+    # Seafile 13 からキャッシュは memcached ではなく redis が既定。
+    # 永続化は切ってある (--save "" --appendonly no) ので、バックアップ対象もない。
+
+  seafile:
+    image: seafileltd/seafile-mc:13.0-latest
+    container_name: seafile
+    ports:
+      - "10102:80"
+    volumes:
+      - ./data/seafile:/shared
+    environment:
+      - SEAFILE_MYSQL_DB_HOST=db
+      - SEAFILE_MYSQL_DB_PORT=3306
+      - SEAFILE_MYSQL_DB_USER=${SEAFILE_MYSQL_DB_USER:-seafile}
+      - SEAFILE_MYSQL_DB_PASSWORD=${SEAFILE_MYSQL_DB_PASSWORD:?未設定}
+      - INIT_SEAFILE_MYSQL_ROOT_PASSWORD=${INIT_SEAFILE_MYSQL_ROOT_PASSWORD:?未設定}
+      - SEAFILE_MYSQL_DB_CCNET_DB_NAME=ccnet_db
+      - SEAFILE_MYSQL_DB_SEAFILE_DB_NAME=seafile_db
+      - SEAFILE_MYSQL_DB_SEAHUB_DB_NAME=seahub_db
+      - TIME_ZONE=${TIME_ZONE:-Asia/Tokyo}
+      # ホスト名はここで決めた値が DB (seahub の SERVICE_URL) に焼き付き、共有リンクや
+      # クライアントに配る URL になる。ポートを付け替えたら .env も直して
+      # 管理画面 > システム情報 の SERVICE_URL / FILE_SERVER_ROOT も直すこと。
+      - SEAFILE_SERVER_HOSTNAME=${SEAFILE_SERVER_HOSTNAME:?未設定}
+      - SEAFILE_SERVER_PROTOCOL=${SEAFILE_SERVER_PROTOCOL:-http}
+      - SITE_ROOT=/
+      - NON_ROOT=false
+      - JWT_PRIVATE_KEY=${JWT_PRIVATE_KEY:?未設定}
+      - ENABLE_GO_FILESERVER=true
+      - ENABLE_SEADOC=false
+      - ENABLE_NOTIFICATION_SERVER=false
+      - CACHE_PROVIDER=redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      # 初回起動時だけ使われる。作成後に変えても効かない (管理画面から変更すること)。
+      - INIT_SEAFILE_ADMIN_EMAIL=${INIT_SEAFILE_ADMIN_EMAIL:?未設定}
+      - INIT_SEAFILE_ADMIN_PASSWORD=${INIT_SEAFILE_ADMIN_PASSWORD:?未設定}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:80 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    # 中で nginx / seaf-server / seahub を supervisor 経由で抱えている。
+    # 10 秒だと転送中のファイルを巻き込んで落ちうるので延ばす。
+    stop_grace_period: 30s

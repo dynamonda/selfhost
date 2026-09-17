@@ -2,6 +2,13 @@
 compose/ytzero/data/*
 !compose/ytzero/data/.gitkeep
 
+# seafile
+compose/seafile/data/*
+!compose/seafile/data/.gitkeep
+
+# 各サービスの .env（DB パスワードや JWT 鍵を含む。.env.example だけ追跡する）
+compose/*/.env
+
 # restic リポジトリ（restic ユーザー所有。git に入れない）
 backup/resticrepo/
 
