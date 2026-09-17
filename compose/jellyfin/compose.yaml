@@ -1,0 +1,55 @@
+# Jellyfin。公式イメージ 1 コンテナだけの最小構成。
+# 元: https://jellyfin.org/docs/general/installation/container/
+#
+# DB は中に抱えた SQLite なので、seafile と違って別コンテナ (MariaDB/Redis) はいらない。
+# 秘密情報も持たないので .env も置いていない。ホスト固有の値は下の
+# JELLYFIN_PublishedServerUrl だけで、そこだけ直せば別ホストでも動く。
+#
+# ハードウェアトランスコードは入れていない。このホストの GPU は NVIDIA
+# (GTX 1660 SUPER) で、NVENC を使うには nvidia-container-toolkit の導入と
+# deploy.resources.devices の追加が要る。まずは CPU トランスコードで足りるか
+# 見てから足すこと (Jellyfin は元の形式で再生できるなら変換自体しない)。
+
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:10.10.7
+    container_name: jellyfin
+    # root で動かす必要がないので、ホストの dynamonda(1000:1000) に落とす。
+    # ./data 配下がそのまま自分の権限で読めるので、復元や調査が sudo なしで済む。
+    # 変えるときは先に chown -R して回ること (中の uid が変わると config を読めなくなる)。
+    user: "1000:1000"
+    ports:
+      - "10103:8096"
+    volumes:
+      # config: ライブラリ DB・ユーザー・視聴履歴。失うと痛いので backup 対象。
+      - ./data/config:/config
+      # cache: 画像やトランスコードの中間物。消えても作り直せる。
+      - ./data/cache:/cache
+      # メディア本体。Jellyfin 側の管理画面でライブラリを作るときに
+      # この /media 配下のパスを指定する。
+      - ./media:/media
+      # ytzero がダウンロードした動画。あちらが書き手なので読み取り専用で借りる。
+      # ytzero のバックアップ対象に入っているため、こちらでは二重に取らない。
+      #
+      # 意図的に /media の下に置いていない。./media 自体が bind mount なので、
+      # その下 (/media/ytzero) をマウント先にすると docker がホスト側の
+      # ./media/ytzero を root 所有で自動生成する。自分のメディアツリーに
+      # 消せない空ディレクトリが混ざるので、独立した /ytzero に逃がしてある。
+      - ../ytzero/data/downloads:/ytzero:ro
+    environment:
+      # クライアント (TV アプリなど) に「自分はこの URL で見える」と広告するときに使う。
+      # ここが空だとコンテナ内の 172.x を配ってしまい、外から繋がらないことがある。
+      - JELLYFIN_PublishedServerUrl=http://server26.mullet-tiyanki.ts.net:10103
+      - TZ=Asia/Tokyo
+    restart: unless-stopped
+    healthcheck:
+      # Jellyfin 自身の /health は起動完了で "Healthy" を返す。
+      # このイメージに wget は入っていないので curl を使う (curl は入っている)。
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8096/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    # 再生中・トランスコード中の停止に猶予を持たせる。バックアップ (QUIESCE=stop) が
+    # SQLite をクリーンに閉じさせるためでもある。
+    stop_grace_period: 30s

@@ -6,6 +6,25 @@ compose/ytzero/data/*
 compose/seafile/data/*
 !compose/seafile/data/.gitkeep
 
+# jellyfin
+# 中身は追跡しないが、ディレクトリだけは .gitkeep ごと追跡する。docker に bind mount 先を
+# 自動生成させると root 所有になり、user: "1000:1000" で動く Jellyfin が書けなくなる
+# (/config なら起動ループ)。clone した時点で clone した人の所有で存在させるため。
+# ディレクトリを増やすときは .gitkeep を置いて、下の否定行に 1 行足す。
+# 除外 -> ディレクトリだけ復活 -> その中身を再除外 -> .gitkeep だけ復活、の順。
+# 親を除外したままでは中のファイルを復活できないので、この順序が必要。
+compose/jellyfin/data/*
+compose/jellyfin/media/*
+!compose/jellyfin/data/cache/
+!compose/jellyfin/data/config/
+!compose/jellyfin/media/movies/
+!compose/jellyfin/media/music/
+!compose/jellyfin/media/shows/
+compose/jellyfin/data/*/*
+compose/jellyfin/media/*/*
+!compose/jellyfin/data/*/.gitkeep
+!compose/jellyfin/media/*/.gitkeep
+
 # 各サービスの .env（DB パスワードや JWT 鍵を含む。.env.example だけ追跡する）
 compose/*/.env
 
