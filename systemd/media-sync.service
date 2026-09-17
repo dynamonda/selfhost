@@ -1,0 +1,32 @@
+[Unit]
+Description=Sync Seafile media library to Jellyfin
+Wants=local-fs.target
+After=local-fs.target docker.service
+RequiresMountsFor=/selfhost
+
+[Service]
+Type=oneshot
+ExecStart=/selfhost/scripts/media-sync.sh
+
+# docker を操作する必要があるため root で動かす。その代わり触れる範囲を以下で絞る。
+# 実際にファイルを書くのは rclone コンテナ (--user 1000:1000) であって
+# このユニット自身ではないので、同期先への書き込み権限はここでは要らない。
+ProtectSystem=strict
+ReadWritePaths=/run/docker.sock
+ProtectHome=yes
+PrivateTmp=yes
+
+# docker ソケット用に AF_UNIX だけ。Seafile への通信は rclone コンテナ側が行う。
+RestrictAddressFamilies=AF_UNIX
+
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+
+# バックアップや再生の邪魔をしないよう優先度を下げる。
+Nice=19
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

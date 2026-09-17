@@ -28,6 +28,7 @@ docker compose logs -f jellyfin
 | `compose/jellyfin/media/movies`   | `/media/movies` | 映画                         |
 | `compose/jellyfin/media/shows`    | `/media/shows`  | TV 番組                      |
 | `compose/jellyfin/media/music`    | `/media/music`  | 音楽                         |
+| `compose/jellyfin/media/seafile`  | `/media/seafile`| Seafile から同期した動画     |
 | `compose/ytzero/data/downloads`   | `/ytzero`       | ytzero の録画 (読み取り専用) |
 
 ytzero だけ `/media` の外に置いてある。理由は `compose.yaml` のコメント参照
@@ -50,6 +51,18 @@ media/shows/Some Show/Season 01/Some Show S01E01.mkv
 
 詳細は <https://jellyfin.org/docs/general/server/media/movies/>。
 
+## Seafile に置いた動画を見る
+
+`media/seafile/` は `/selfhost/scripts/media-sync.sh` が Seafile のライブラリから
+15 分ごとに一方向コピーしている。セットアップは `/selfhost/scripts/README.md` 参照。
+
+Jellyfin 側は `/media/seafile` を指すライブラリを 1 つ作るだけでよい。Seafile に
+置いたファイルがそのままの名前で並ぶので、命名が上の規則に従っていないなら
+`/ytzero` と同じく **ホームビデオと写真** にしておくのが無難。
+
+新しいファイルは Jellyfin のリアルタイム監視が拾うので、原則は自動で出てくる。
+出てこないときは管理画面 > ライブラリ > **すべてのライブラリをスキャン**。
+
 ## バックアップ
 
 `backup.conf` があるので `restic-backup.timer`(毎日 02:00) が自動で拾う。
@@ -57,7 +70,8 @@ media/shows/Some Show/Season 01/Some Show S01E01.mkv
 
 **`./media` はバックアップしていない**。理由と足し方は `backup.conf` のコメントを
 読むこと。ライブラリの設定・ユーザー・視聴履歴 (`./data/config`) は戻せるが、
-メディア本体は戻せない構成になっている。
+メディア本体は戻せない構成になっている。`./media/seafile` だけは例外で、原本が
+seafile 側のバックアップに入っているので実質守られている。
 
 手動実行は `sudo systemctl start restic-backup.service`、確認は
 `sudo journalctl -u restic-backup.service -n 50`。

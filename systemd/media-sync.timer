@@ -1,0 +1,16 @@
+[Unit]
+Description=Periodic Seafile -> Jellyfin media sync timer
+
+[Timer]
+# 15 分ごと。Seafile に置いた動画が Jellyfin に出るまで最大 15 分かかる。
+OnCalendar=*:0/15
+# 起動直後に一度走らせる (再起動後の取りこぼしを拾う)。
+OnBootSec=5min
+# 全部が毎時 00 分ちょうどに殺到しないようずらす。
+RandomizedDelaySec=60
+# Persistent は付けない。落ちていた間の分をまとめて走らせても、
+# やることは「最新状態に合わせる」だけで変わらないため。
+Unit=media-sync.service
+
+[Install]
+WantedBy=timers.target

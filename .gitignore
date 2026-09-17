@@ -19,6 +19,7 @@ compose/jellyfin/media/*
 !compose/jellyfin/data/config/
 !compose/jellyfin/media/movies/
 !compose/jellyfin/media/music/
+!compose/jellyfin/media/seafile/
 !compose/jellyfin/media/shows/
 compose/jellyfin/data/*/*
 compose/jellyfin/media/*/*
@@ -33,3 +34,6 @@ backup/resticrepo/
 
 # backup.sh のローカル設定（秘密情報を含みうる）
 scripts/backup.env
+
+# media-sync.sh のローカル設定（Seafile の認証情報を含む。.env.example だけ追跡する）
+scripts/media-sync.env
