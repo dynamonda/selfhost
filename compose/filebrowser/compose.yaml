@@ -1,0 +1,67 @@
+# FileBrowser Quantum 1.5 系。公式イメージ 1 コンテナの最小構成。
+# 元: https://filebrowserquantum.com/en/docs/getting-started/docker-v1.5.x/
+#
+# ホストの /home/dynamonda をブラウザから読み書きできるようにする。
+# ドットファイルは config.yaml のルールで見せないようにしているが、それは
+# 行儀の問題で、本当に守りたい .ssh / .claude は下の tmpfs で塞いでいる。
+#
+# 設定は同じディレクトリの config.yaml (git 管理)、秘密情報は .env (.env.example 参照)。
+#
+# イメージは 1.5-stable に固定している (1.5.x のパッチ更新だけ追従する)。
+# stable / latest を使うと 2.0 系が stable になった時点で勝手に上がり、
+# 2.0 では DB の形式と環境変数 (FILEBROWSER_DATABASE → _PATH) が変わる。
+
+services:
+  filebrowser:
+    image: gtstef/filebrowser:1.5-stable
+    container_name: filebrowser
+    # イメージの既定ユーザー filebrowser も 1000:1000 だが、ホストの dynamonda と
+    # 揃っていることが前提なので明示しておく。ここがずれるとホームのファイルを
+    # 読めない・作ったファイルの所有者がずれる。
+    user: "1000:1000"
+    ports:
+      - "10104:80"
+    volumes:
+      # database.db (ユーザー・共有リンク・設定) と tmp/ (サムネイルと検索インデックス)。
+      - ./data:/home/filebrowser/data
+      # 設定は git で管理したいので ./data とは別の場所に読み取り専用で置き、
+      # FILEBROWSER_CONFIG で読ませる。既定の /home/filebrowser/data/config.yaml に
+      # マウントしないのは、./data 自体が bind mount なのでその下を
+      # マウント先にすると docker がホスト側に root 所有の空ファイルを作るため。
+      - ./config.yaml:/home/filebrowser/config.yaml:ro
+      # 見せる対象。ホストのユーザー名に依存しているので、別ホストではここを直す。
+      # ${HOME} にしないのは、夜間バックアップが root で docker compose を叩くので
+      # /root に化けるため。
+      - /home/dynamonda:/srv/home
+      # 秘密情報を持つディレクトリは、コンテナ内で空の読み取り専用 tmpfs を被せて
+      # 物理的に見えなくする。config.yaml のドットファイル遮断はアプリ側の判定で、
+      # 1.5.6 では一覧・GET は塞げても /api/resources/download からは
+      # ~/.ssh/id_ed25519 がそのまま落とせた (確認済み)。そちらはあてにしない。
+      #   .ssh    : SSH の秘密鍵
+      #   .claude : Claude Code の認証情報 (.credentials.json)
+      # 足すのはディレクトリだけにすること。ファイルに /dev/null を被せる手は、
+      # ホスト側でアトミックに書き換えられる (rename される) とマウントが外れて効かない。
+      # また、被せる先がホストに存在しないと docker が root 所有で作ってしまうので、
+      # 消したディレクトリを足しておかないこと。
+      - type: tmpfs
+        target: /srv/home/.ssh
+        read_only: true
+        tmpfs:
+          size: 4096
+      - type: tmpfs
+        target: /srv/home/.claude
+        read_only: true
+        tmpfs:
+          size: 4096
+    environment:
+      - FILEBROWSER_CONFIG=/home/filebrowser/config.yaml
+      # 起動のたびに admin のパスワードをこの値で上書きする (1.5 の仕様)。
+      # UI から変えても次の再起動 (毎晩のバックアップ含む) で戻るので、変えるなら .env で。
+      - FILEBROWSER_ADMIN_PASSWORD=${FILEBROWSER_ADMIN_PASSWORD:?未設定}
+      # JWT と共有リンクの署名鍵。固定しておかないと、共有リンクが再起動を
+      # またいで使えなくなることがある。
+      - FILEBROWSER_JWT_TOKEN_SECRET=${FILEBROWSER_JWT_TOKEN_SECRET:?未設定}
+      - TZ=Asia/Tokyo
+    restart: unless-stopped
+    # healthcheck はイメージ側に入っている (curl http://localhost:80/health)。
+    # config.yaml で server.port を変えたらここで上書きすること。

@@ -26,6 +26,10 @@ compose/jellyfin/media/*/*
 !compose/jellyfin/data/*/.gitkeep
 !compose/jellyfin/media/*/.gitkeep
 
+# filebrowser
+compose/filebrowser/data/*
+!compose/filebrowser/data/.gitkeep
+
 # 各サービスの .env（DB パスワードや JWT 鍵を含む。.env.example だけ追跡する）
 compose/*/.env
 

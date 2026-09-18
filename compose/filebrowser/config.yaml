@@ -1,0 +1,51 @@
+# FileBrowser Quantum の設定。compose.yaml から読み取り専用でマウントしている。
+# 全項目: https://github.com/gtsteffaniak/filebrowser/blob/v1.5.6-stable/frontend/public/config.generated.yaml
+#
+# 秘密情報 (admin パスワード、JWT 鍵) はここに書かず .env から環境変数で渡す。
+# 変更したら docker compose restart で反映される。
+
+server:
+  port: 80
+  baseURL: "/"
+  # 共有リンクの URL を組み立てるときに使う。空だとアクセス元のホスト名になる。
+  externalUrl: "http://server26.mullet-tiyanki.ts.net:10104"
+  # 既定の "tmp" は WORKDIR 相対でコンテナ内に消える。./data に置いて
+  # 再作成で検索インデックスとサムネイルを作り直さずに済むようにする。
+  cacheDir: /home/filebrowser/data/tmp
+  logging:
+    - levels: "info|warning|error"
+  # WebDAV は使っていないので閉じる。上のドットファイル遮断を WebDAV 側でも
+  # 確かめていないので、開けるときは .ssh が見えないことを確認してから。
+  disableWebDAV: true
+  sources:
+    - path: /srv/home
+      name: home
+      config:
+        # 新規ユーザーにも自動でこのソースを与える。
+        defaultEnabled: true
+        rules:
+          # ドットファイル・ドットディレクトリを一覧からも直接の URL/API からも
+          # 見えなくする (インデックス対象からも外れる)。.ssh の秘密鍵や
+          # .claude の認証情報を、ログインさえできれば誰でも落とせる状態を避けるため。
+          # 見せたくなったら外してよいが、そのときは .ssh などを個別に
+          # folderPath + viewable: false で塞ぐこと。
+          #
+          # folderPath: "/" は外さないこと。ignoreHidden はルート指定のルールに
+          # 付けたときだけ全体に効く。単独で書くと UI の一覧から消えるだけで
+          # (それも showHidden が false だから)、パスを直接叩けば中身が返る。
+          - folderPath: "/"
+            ignoreHidden: true
+
+auth:
+  # 既定は 2 時間。Tailscale 内でしか見えないので 1 週間にしておく。
+  tokenExpirationHours: 168
+  adminUsername: admin
+  methods:
+    password:
+      enabled: true
+      minLength: 12
+      signup: false
+
+userDefaults:
+  ui:
+    locale: "ja"
