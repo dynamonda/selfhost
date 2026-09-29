@@ -7,8 +7,107 @@
 | `backup.sh` | `restic-backup.timer` (毎日 02:00) | `compose/*/backup.conf` を置いたサービスを restic でバックアップ |
 | `media-sync.sh` | `media-sync.timer` (15 分ごと) | Seafile のライブラリを Jellyfin のメディアディレクトリに一方向コピー |
 
+バックアップから戻すときは下の「リストア手順」を参照。
+
 unit はリポジトリに置いてあるだけなので、`/etc/systemd/system/` にリンクして
 有効化するまでは動かない。
+
+## リストア手順
+
+`backup.sh` が取ったスナップショットから、サービス単位で戻す。スナップショットには
+サービス名 (`compose/` のディレクトリ名) のタグが付いている。`compose/` 以外
+(`/selfhost/data`) のタグは `selfhost`。
+
+restic のパスワードファイルは root しか読めないので、以下は **sudo が使える端末**
+(SSH セッションなど) で打つ。Claude Code の `!` からは sudo の認証ができない。
+
+以下 `<svc>` はサービス名 (例: `jellyfin`)。
+
+### 1. 止めて、今のデータを退避する
+
+```sh
+r() { sudo restic -r /selfhost/backup/resticrepo \
+        --password-file /var/lib/restic/repository-password "$@"; }
+
+cd /selfhost/compose/<svc>
+docker compose stop
+mv data data.broken-$(date +%Y%m%d)
+```
+
+消さずに退避するのは、戻した結果がおかしかったときに比べられるようにするため。
+容量が足りなければ、中身を確かめてから消す。
+
+### 2. スナップショットを選んで戻す
+
+```sh
+r snapshots --tag <svc>
+r ls <スナップショットID> | head    # 記録されているパスを確かめる
+```
+
+`ls` に出るパス (通常は `/selfhost/compose/<svc>`) を `:` の後ろに書いて、
+その中身をサービスのディレクトリへ戻す。
+
+```sh
+r restore <スナップショットID>:/selfhost/compose/<svc> --target /selfhost/compose/<svc>
+```
+
+`./data` と、取っていれば `./.env` が戻る。所有者はバックアップ時のまま戻る。
+
+### 3. バックアップから外していたディレクトリを git で戻す
+
+**コンテナを起動する前に必ずやる**。`backup.conf` の `BACKUP_EXCLUDE` で外した
+ディレクトリは、ディレクトリごと戻らない。それが bind mount 先 (例: jellyfin の
+`data/cache`) だと、起動したときに docker が root 所有で作り、`user: "1000:1000"` で
+動くコンテナが書けなくなる。2026-09 のリストア後に jellyfin がこれで
+トランスコードできなくなっていた。
+
+bind mount 先には `.gitkeep` を置いてあるので、消えた追跡ファイルだけを
+**sudo なしで** git から戻せば、ディレクトリが dynamonda 所有で揃う。
+
+```sh
+cd /selfhost
+git ls-files --deleted -- compose/ | xargs -r git restore --
+git status --short compose/    # " D" の行が残っていないこと
+```
+
+`git restore compose/` と丸ごと戻さないのは、手元で直しかけの compose.yaml
+なども巻き戻してしまうため。
+
+### 4. 起動して確かめる
+
+```sh
+find /selfhost/compose/<svc> -user root    # 下の例外以外に出てこないこと
+cd /selfhost/compose/<svc>
+docker compose up -d
+docker compose logs -f
+```
+
+ログに `Permission denied` が出ていないことを確認する。
+
+root 所有のファイルがあってよいのは、root で動くコンテナが書いたものだけ:
+
+- `ytzero` の `data/` 配下 (コンテナが root で動く)
+- `seafile` の `data/` 配下 (Seafile が root で書く。なお `data/mysql` は
+  MariaDB の UID 999 で、ホストでは同じ UID の `restic` ユーザーの所有に見えるが正常)
+
+それ以外で root 所有のものが出てきたら、起動する前に所有者を直す。
+
+```sh
+docker run --rm --user 0 --entrypoint chown \
+  -v /selfhost/compose/<svc>/data:/d jellyfin/jellyfin:10.10.7 1000:1000 /d/<ディレクトリ>
+```
+
+sudo でもよいが、docker 経由なら sudo の端末が無くても直せる (イメージは手元に
+あるものなら何でもよい)。問題なければ `data.broken-*` を消す。
+
+### サービスごとの注意
+
+| サービス | 注意 |
+| --- | --- |
+| seafile | `docker compose stop` で DB・Redis も一緒に止まる。`data/` は 3 コンテナ分まとめて戻すこと (DB と実ファイルの組がずれる) |
+| jellyfin | `data/cache` が除外されている (上の手順 3 で戻る)。`media/` はバックアップしていない |
+| filebrowser | `data/tmp` は除外しているが、アプリが作り直すので何もしなくてよい |
+| memos | 特になし |
 
 ## media-sync のセットアップ
 
