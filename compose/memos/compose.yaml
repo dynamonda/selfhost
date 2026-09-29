@@ -1,0 +1,38 @@
+# Memos 0.31 系。公式イメージ 1 コンテナ、DB は既定の SQLite。
+# 元: https://github.com/usememos/memos
+#
+# 秘密情報を env で渡すものがないので .env は無い。
+#
+# イメージは 0.31 に固定している (0.31.x のパッチ更新だけ追従する)。
+# stable を使うと次のマイナー版に勝手に上がり、DB マイグレーションが走る。
+# memos は上げたら戻せない (ダウングレード非対応) ので、上げるのは手でやる。
+
+services:
+  memos:
+    image: neosmemo/memos:0.31
+    container_name: memos
+    # イメージの entrypoint は root で起動されると /var/opt/memos を chown -R して
+    # UID 10001 に落とす。そのままだとホスト側の ./data が 10001 所有になり、
+    # dynamonda から触れない。最初から 1000:1000 で起動すれば entrypoint は
+    # chown も切り替えもせずそのまま memos を exec する。
+    user: "1000:1000"
+    ports:
+      - "10105:5230"
+    volumes:
+      # memos_prod.db (SQLite) と、ローカル保存の添付ファイル。
+      - ./data:/var/opt/memos
+    environment:
+      # 共有リンクや RSS などで組み立てる URL の基点。
+      - MEMOS_INSTANCE_URL=http://server26.mullet-tiyanki.ts.net:10105
+      # 前段にリバースプロキシを置いていない。既定の "private" のままだと
+      # X-Forwarded-For を信じてしまい、レート制限を偽装で回避できる。
+      - MEMOS_TRUSTED_PROXIES=none
+      - TZ=Asia/Tokyo
+    restart: unless-stopped
+    healthcheck:
+      # alpine の busybox wget を使う (curl は入っていない)。
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:5230/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
