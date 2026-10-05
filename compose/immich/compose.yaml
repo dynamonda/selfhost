@@ -1,0 +1,122 @@
+# Immich v3.2 系 (server + machine-learning + PostgreSQL + Valkey)。
+# 公式の docker-compose.rootless.yml + example.env を、このリポジトリの流儀
+# (1 サービス 1 ディレクトリ・データは ./data 配下・1000:1000 で動かす) に合わせた。
+# 元: https://github.com/immich-app/immich/releases/download/v3.2.4/docker-compose.rootless.yml
+#
+# rootless 版を元にしたのは、全コンテナを 1000:1000 で動かせば ./data 配下が
+# 全部 dynamonda 所有になり、復元や調査が sudo なしで済むため (jellyfin と同じ理由)。
+# 通常版だと PostgreSQL が UID 999 で書き、server は root で書く。
+#
+# 秘密情報は同じディレクトリの .env に置く (.env.example 参照)。公式は env_file で
+# .env を全コンテナに丸ごと渡しているが、ここでは必要な変数だけ environment で渡す。
+# machine-learning に DB パスワードを見せる理由がないので。
+#
+# イメージは v3.2.4 に固定している。公式の既定 (release / v3) だと次のマイナー版に
+# 勝手に上がり、起動時に DB マイグレーションが走る。Immich はマイナー版でも
+# 破壊的変更を出すので、上げるときはリリースノートを読んでから手で上げる。
+# (v3.2 のようなマイナー版タグは公開されていないので、パッチ版まで書く。)
+#
+# ハードウェアアクセラレーションは入れていない (jellyfin と同じく NVIDIA には
+# nvidia-container-toolkit が要る)。顔認識やスマート検索の初回ジョブが遅ければ、
+# 公式の hwaccel.ml.yml / hwaccel.transcoding.yml を持ってきて足す。
+
+services:
+  server:
+    image: ghcr.io/immich-app/immich-server:v3.2.4
+    container_name: immich
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - NET_RAW
+    ports:
+      - "10106:2283"
+    volumes:
+      # 写真・動画の原本 (upload/ library/)、サムネイル、トランスコード済み動画、
+      # Immich 自身が取る DB ダンプ (backups/)。中のサブディレクトリと .immich
+      # (マウント確認用の目印) は Immich が作る。
+      - ./data/library:/data
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      # DB_HOSTNAME / REDIS_HOSTNAME は既定値 (database / redis) がそのまま
+      # 下のサービス名に当たるので書いていない。サービス名を変えたら足すこと。
+      - DB_USERNAME=${DB_USERNAME:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:?未設定}
+      - DB_DATABASE_NAME=${DB_DATABASE_NAME:-immich}
+      - TZ=Asia/Tokyo
+    restart: unless-stopped
+    # healthcheck はイメージ側に入っている (immich-healthcheck)。
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  machine-learning:
+    image: ghcr.io/immich-app/immich-machine-learning:v3.2.4
+    container_name: immich-machine-learning
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - NET_RAW
+    volumes:
+      # 顔認識・スマート検索のモデル。初回に数百 MB〜落としてくる。消えても
+      # 次に使うときに落とし直すだけなのでバックアップしない。
+      - ./data/model-cache:/cache
+    environment:
+      - TZ=Asia/Tokyo
+    restart: unless-stopped
+    # healthcheck はイメージ側に入っている。
+
+  redis:
+    image: docker.io/valkey/valkey:9@sha256:70739f85ad2ee01a726a965584a0f94895f01b0c60b3cc8b0aeef11eaa6888cf
+    container_name: immich-redis
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - NET_RAW
+    volumes:
+      # ジョブキュー。イメージが VOLUME /data を宣言しているので、明示しないと
+      # root 所有の匿名ボリュームが作られて 1000:1000 では書けない。
+      # 中身は消えても未処理ジョブがやり直しになるだけなのでバックアップしない。
+      - ./data/redis:/data
+    restart: unless-stopped
+    healthcheck:
+      test: redis-cli ping | grep -q PONG || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  database:
+    # Immich 専用ビルド (pgvecto.rs / VectorChord 入り)。素の postgres では動かない。
+    # 公式が digest で固定しているのでそのまま写している。Immich を上げるときは
+    # 新しいリリースの docker-compose.yml とここを見比べること。
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+    container_name: immich-postgres
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - NET_RAW
+    environment:
+      - POSTGRES_USER=${DB_USERNAME:-postgres}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:?未設定}
+      - POSTGRES_DB=${DB_DATABASE_NAME:-immich}
+      - POSTGRES_INITDB_ARGS=--data-checksums
+      # ./data/postgres 直下ではなく 1 段下に作らせる。initdb は空でないディレクトリを
+      # 拒否するので、直下だと .gitkeep があるだけで初回起動に失敗する。
+      # .gitkeep を置いているのは、docker に作らせると root 所有になり、
+      # 1000:1000 の postgres が書けないため (.gitignore のコメント参照)。
+      - PGDATA=/var/lib/postgresql/data/pgdata
+      # / は SSD なので DB_STORAGE_TYPE=HDD は付けない。HDD に移したら付ける。
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    shm_size: 128mb
+    restart: unless-stopped
+    # healthcheck はイメージ側に入っている。
+    # バックアップ (QUIESCE=stop) は「止めればディスク上が整合している」ことに依存する。
+    # seafile の MariaDB と同じく、チェックポイントが 10 秒で終わらず SIGKILL される
+    # ことのないよう余裕を持たせる。
+    stop_grace_period: 60s

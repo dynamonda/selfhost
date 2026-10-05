@@ -34,6 +34,17 @@ compose/filebrowser/data/*
 compose/memos/data/*
 !compose/memos/data/.gitkeep
 
+# immich
+# jellyfin と同じく、bind mount 先のディレクトリだけ .gitkeep ごと追跡する。
+# 全コンテナが 1000:1000 で動くので、docker に root 所有で作らせると起動できない。
+compose/immich/data/*
+!compose/immich/data/library/
+!compose/immich/data/model-cache/
+!compose/immich/data/postgres/
+!compose/immich/data/redis/
+compose/immich/data/*/*
+!compose/immich/data/*/.gitkeep
+
 # 各サービスの .env（DB パスワードや JWT 鍵を含む。.env.example だけ追跡する）
 compose/*/.env
 

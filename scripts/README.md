@@ -108,6 +108,7 @@ sudo でもよいが、docker 経由なら sudo の端末が無くても直せ�
 | jellyfin | `data/cache` が除外されている (上の手順 3 で戻る)。`media/` はバックアップしていない |
 | filebrowser | `data/tmp` は除外しているが、アプリが作り直すので何もしなくてよい |
 | memos | 特になし |
+| immich | `docker compose stop` で 4 コンテナとも止まる。`data/model-cache` と `data/redis` が除外されている (上の手順 3 で戻る) |
 
 ## media-sync のセットアップ
 
