@@ -109,6 +109,7 @@ sudo でもよいが、docker 経由なら sudo の端末が無くても直せ�
 | filebrowser | `data/tmp` は除外しているが、アプリが作り直すので何もしなくてよい |
 | memos | 特になし |
 | immich | `docker compose stop` で 4 コンテナとも止まる。`data/model-cache` と `data/redis` が除外されている (上の手順 3 で戻る) |
+| leantime | `docker compose stop` で MySQL も一緒に止まる。`data/logs` が除外されている (上の手順 3 で戻る) |
 
 ## media-sync のセットアップ
 

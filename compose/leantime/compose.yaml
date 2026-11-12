@@ -1,0 +1,99 @@
+# Leantime 3.13 系 (leantime + MySQL 8.4)。プロジェクト管理。
+# 公式の docker-compose.yml + sample.env を、このリポジトリの流儀
+# (1 サービス 1 ディレクトリ・データは ./data 配下・1000:1000 で動かす) に合わせた。
+# 元: https://github.com/Leantime/docker-leantime
+#
+# 公式は named volume を使っているが、bind mount にして ./data 配下に集める。
+# leantime イメージは最初から uid 1000 (www-data) で動くので、MySQL も 1000:1000 で
+# 動かせば ./data 配下が全部 dynamonda 所有になり、復元が sudo なしで済む。
+#
+# 秘密情報は同じディレクトリの .env に置く (.env.example 参照)。公式は env_file で
+# .env を両コンテナに丸ごと渡しているが、ここでは必要な変数だけ environment で渡す。
+#
+# イメージは 3.13.2 に固定している。latest だと次の版に勝手に上がり、起動時に
+# DB マイグレーションが走る。Leantime はマイナー版タグ (3.13) を公開していないので
+# パッチ版まで書く。3.14.0 (2026-11-11) は出た直後なので見送った。
+
+services:
+  leantime:
+    image: leantime/leantime:3.13.2
+    container_name: leantime
+    # イメージの既定 (USER www-data = 1000:1000) と同じだが、明示しておく。
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - NET_RAW
+    # 公式は CHOWN / SETGID / SETUID を cap_add しているが、root で起動しないので
+    # 使う場面がない (supervisord の各プログラムにも user= は無い)。付けない。
+    ports:
+      - "10107:8080"
+    volumes:
+      # アップロードされた添付ファイル。
+      - ./data/userfiles:/var/www/html/userfiles
+      # ロゴなど公開ファイル。
+      - ./data/public-userfiles:/var/www/html/public/userfiles
+      # マーケットプレイスから入れたプラグイン。イメージ側のこのディレクトリは
+      # 空なので、上から被せても何も隠れない。
+      - ./data/plugins:/var/www/html/app/Plugins
+      # leantime.log。消えても困らないのでバックアップしない。
+      - ./data/logs:/var/www/html/storage/logs
+    environment:
+      - LEAN_APP_URL=http://server26.mullet-tiyanki.ts.net:10107
+      - LEAN_DB_HOST=database
+      - LEAN_DB_PORT=3306
+      - LEAN_DB_DATABASE=${DB_DATABASE:-leantime}
+      - LEAN_DB_USER=${DB_USER:-lean}
+      - LEAN_DB_PASSWORD=${DB_PASSWORD:?未設定}
+      # セッションの暗号化に使う。変えると全員ログアウトされるだけで、データは壊れない。
+      - LEAN_SESSION_PASSWORD=${SESSION_PASSWORD:?未設定}
+      # HTTPS ではないので false。true にすると Cookie が送られずログインできない。
+      - LEAN_SESSION_SECURE=false
+      - LEAN_LANGUAGE=ja-JP
+      - LEAN_DEFAULT_TIMEZONE=Asia/Tokyo
+      - TZ=Asia/Tokyo
+    restart: unless-stopped
+    # healthcheck はイメージ側に入っている (curl http://localhost:8080)。
+    depends_on:
+      database:
+        condition: service_healthy
+
+  database:
+    image: mysql:8.4
+    container_name: leantime-mysql
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - NET_RAW
+    # 文字コードは公式どおり。--skip-log-bin はレプリケーションしないので
+    # バイナリログ (放っておくと 30 日分溜まる) を書かせないため。
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-log-bin
+    environment:
+      - MYSQL_DATABASE=${DB_DATABASE:-leantime}
+      - MYSQL_USER=${DB_USER:-lean}
+      - MYSQL_PASSWORD=${DB_PASSWORD:?未設定}
+      # root は使わないのでパスワードを持たない (初回起動時にランダム生成され、
+      # ログに 1 度出るだけ)。要るときは docker compose exec で入れば足りる。
+      - MYSQL_RANDOM_ROOT_PASSWORD=yes
+      - TZ=Asia/Tokyo
+    volumes:
+      # MySQL は .gitkeep があっても初期化できる (immich の PostgreSQL と違い、
+      # 1 段下げなくてよい) ことを確認済み。
+      - ./data/mysql:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      # 公式どおり TCP で見る。初回の一時サーバーはソケットだけで待ち受けるので、
+      # それを ready と見なさないため。
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    # バックアップ (QUIESCE=stop) は「止めればディスク上が整合している」ことに依存する。
+    # seafile の MariaDB と同じく、InnoDB のクリーンシャットダウンが 10 秒で終わらず
+    # SIGKILL されることのないよう余裕を持たせる。
+    stop_grace_period: 60s

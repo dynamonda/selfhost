@@ -45,6 +45,18 @@ compose/immich/data/*
 compose/immich/data/*/*
 !compose/immich/data/*/.gitkeep
 
+# leantime
+# jellyfin と同じく、bind mount 先のディレクトリだけ .gitkeep ごと追跡する。
+# 両コンテナが 1000:1000 で動くので、docker に root 所有で作らせると起動できない。
+compose/leantime/data/*
+!compose/leantime/data/logs/
+!compose/leantime/data/mysql/
+!compose/leantime/data/plugins/
+!compose/leantime/data/public-userfiles/
+!compose/leantime/data/userfiles/
+compose/leantime/data/*/*
+!compose/leantime/data/*/.gitkeep
+
 # 各サービスの .env（DB パスワードや JWT 鍵を含む。.env.example だけ追跡する）
 compose/*/.env
 
